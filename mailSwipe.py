@@ -69,7 +69,7 @@ def fetch_inbox(username):
         return jsonify([])
 
     temp_email = emails[username]['email']
-    messages = check_mails(*extract(f"{API}?login={username}&domain={domain}"))
+    messages = check_mails(*extract(f"{API}?login={username}&domain={emails[username]['email'].split('@')[1]}"))
     email_messages[temp_email] = messages
 
     return jsonify({'email': temp_email, 'messages': messages})
@@ -89,4 +89,4 @@ def cleanup_expired():
     expired_emails = [user for user, data in emails.items() if now > data['expires_at']]
 
     for user in expired_emails:
-        temp_email = emails[_{{{CITATION{{{_1{](https://github.com/ItZzMJ/AcapellaConverter/tree/81f38af696eabdd58dcfb0a03351be079d69e422/app%2FmailSwipe.py)
+        del emails[_{{{CITATION{{{_1{](https://github.com/ItZzMJ/AcapellaConverter/tree/81f38af696eabdd58dcfb0a03351be079d69e422/app%2FmailSwipe.py)
