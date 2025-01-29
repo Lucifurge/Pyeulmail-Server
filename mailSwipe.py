@@ -5,13 +5,14 @@ import string
 import requests
 import re
 import os
+import sys
 import time
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# Allow CORS for frontend access
-CORS(app, resources={r"/*": {"origins": "https://pyeulmails.onrender.com"}})
+# Allow CORS for all origins (or specify your frontend domain)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 API = 'https://www.1secmail.com/api/v1/'
 domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
@@ -88,8 +89,13 @@ def checkMails(mail):
 @app.route("/generate", methods=["POST"])
 def generate_email():
     # Generate email address
-    username = generateUserName()
-    domain = random.choice(domainList)
+    data = request.get_json()  # Get data from frontend (username and domain)
+    username = data.get("username", "")
+    domain = data.get("domain", "")
+
+    if not username or not domain:
+        return jsonify({"status": "Username and domain are required"}), 400
+
     temp_email = f"{username}@{domain}"
     
     # Request to create the temporary email
@@ -106,8 +112,8 @@ def generate_email():
 def check_emails():
     # Fetch the email from the request
     mail = request.args.get('email')
-    if not mail or mail not in emails:
-        return jsonify({"status": "Invalid or missing email address."}), 400
+    if mail not in emails:
+        return jsonify({"status": "Invalid email address."}), 400
     
     # Get the mailbox content
     mail_data = checkMails(mail)
@@ -117,7 +123,7 @@ def check_emails():
 def delete_email():
     # Fetch the email from the request
     mail = request.json.get('email')
-    if not mail or mail not in emails:
+    if mail not in emails:
         return jsonify({"status": "Invalid email address."}), 400
     
     # Delete the email
