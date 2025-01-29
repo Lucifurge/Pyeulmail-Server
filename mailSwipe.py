@@ -85,7 +85,7 @@ def checkMails(mail):
 
     return {"status": f"You received {length} {x}.", "mails": mail_list}
 
-@app.route("/generate", methods=["GET"])
+@app.route("/generate", methods=["POST"])
 def generate_email():
     # Generate email address
     username = generateUserName()
@@ -106,8 +106,8 @@ def generate_email():
 def check_emails():
     # Fetch the email from the request
     mail = request.args.get('email')
-    if mail not in emails:
-        return jsonify({"status": "Invalid email address."}), 400
+    if not mail or mail not in emails:
+        return jsonify({"status": "Invalid or missing email address."}), 400
     
     # Get the mailbox content
     mail_data = checkMails(mail)
@@ -117,7 +117,7 @@ def check_emails():
 def delete_email():
     # Fetch the email from the request
     mail = request.json.get('email')
-    if mail not in emails:
+    if not mail or mail not in emails:
         return jsonify({"status": "Invalid email address."}), 400
     
     # Delete the email
