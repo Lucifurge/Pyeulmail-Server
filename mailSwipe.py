@@ -8,7 +8,9 @@ import re
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app)
+
+# Allow requests ONLY from your frontend
+CORS(app, resources={r"/*": {"origins": "https://pyeulmails.onrender.com"}})
 
 API = 'https://www.1secmail.com/api/v1/'
 domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
@@ -18,8 +20,7 @@ email_messages = {}
 
 def generate_username():
     name = string.ascii_lowercase + string.digits
-    username = ''.join(random.choice(name) for _ in range(10))
-    return username
+    return ''.join(random.choice(name) for _ in range(10))
 
 def extract(newMail):
     getUserName = re.search(r'login=(.*)&', newMail).group(1)
@@ -31,7 +32,7 @@ def check_mails(user, domain):
     req = requests.get(reqLink).json()
     messages = []
 
-    if len(req) != 0:
+    if req:
         for i in req:
             msgRead = f'{API}?action=readMessage&login={user}&domain={domain}&id={i["id"]}'
             msg = requests.get(msgRead).json()
@@ -45,6 +46,9 @@ def check_mails(user, domain):
 
 @app.route('/generate', methods=['POST'])
 def generate_email():
+    if request.origin != "https://pyeulmails.onrender.com":
+        return jsonify({'error': 'Unauthorized request'}), 403
+
     data = request.json
     username = data.get('username')
     domain = data.get('domain')
@@ -53,8 +57,7 @@ def generate_email():
         return jsonify({'error': 'Username and domain are required.'}), 400
 
     temp_email = f"{username}@{domain}"
-    newMail = f"{API}?login={username}&domain={domain}"
-    requests.get(newMail)
+    requests.get(f"{API}?login={username}&domain={domain}")
     pyperclip.copy(temp_email)
     expires_at = datetime.utcnow() + timedelta(days=1)
 
@@ -65,6 +68,9 @@ def generate_email():
 
 @app.route('/inbox/<string:username>', methods=['GET'])
 def fetch_inbox(username):
+    if request.origin != "https://pyeulmails.onrender.com":
+        return jsonify({'error': 'Unauthorized request'}), 403
+
     if username not in emails or datetime.utcnow() > emails[username]['expires_at']:
         return jsonify([])
 
@@ -76,6 +82,9 @@ def fetch_inbox(username):
 
 @app.route('/delete/<string:username>', methods=['DELETE'])
 def delete_email(username):
+    if request.origin != "https://pyeulmails.onrender.com":
+        return jsonify({'error': 'Unauthorized request'}), 403
+
     if username in emails:
         temp_email = emails[username]['email']
         del emails[username]
