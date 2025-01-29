@@ -19,69 +19,110 @@ domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
 emails = {}
 email_messages = {}
 
-def generate_username():
+def generateUserName():
     name = string.ascii_lowercase + string.digits
-    return ''.join(random.choice(name) for _ in range(10))
+    username = ''.join(random.choice(name) for i in range(10))
+    return username
 
-def extract(mail):
-    getUserName = re.search(r'login=(.*)&', mail).group(1)
-    getDomain = re.search(r'domain=(.*)', mail).group(1)
+def extract(newMail):
+    getUserName = re.search(r'login=(.*)&', newMail).group(1)
+    getDomain = re.search(r'domain=(.*)', newMail).group(1)
     return [getUserName, getDomain]
 
-def check_mails(user, domain):
-    reqLink = f'{API}?action=getMessages&login={user}&domain={domain}'
+def print_statusline(msg: str):
+    last_msg_length = len(print_statusline.last_msg) if hasattr(print_statusline, 'last_msg') else 0
+    print(' ' * last_msg_length, end='\r')
+    print(msg, end='\r')
+    sys.stdout.flush()
+    print_statusline.last_msg = msg
+
+def deleteMail(mail):
+    url = 'https://www.1secmail.com/mailbox'
+    data = {
+        'action': 'deleteMailbox',
+        'login': f'{extract(mail)[0]}',
+        'domain': f'{extract(mail)[1]}'
+    }
+    print_statusline(f"Disposing your email address - {mail}\n")
+    requests.post(url, data=data)
+
+def checkMails(mail):
+    reqLink = f'{API}?action=getMessages&login={extract(mail)[0]}&domain={extract(mail)[1]}'
     req = requests.get(reqLink).json()
-    messages = []
+    length = len(req)
+    
+    if length == 0:
+        return {"status": "Your mailbox is empty. Hold tight. Mailbox is refreshed automatically every 5 seconds."}
+    
+    idList = []
+    for i in req:
+        if 'id' in i:
+            idList.append(i['id'])
 
-    if req:
-        for i in req:
-            msgRead = f'{API}?action=readMessage&login={user}&domain={domain}&id={i["id"]}'
-            msg = requests.get(msgRead).json()
-            messages.append({
-                'sender': msg.get('from'),
-                'subject': msg.get('subject'),
-                'date': msg.get('date'),
-                'content': msg.get('textBody')
-            })
-    return messages
+    x = 'mails' if length > 1 else 'mail'
+    print_statusline(f"You received {length} {x}. (Mailbox is refreshed automatically every 5 seconds.)")
 
-@app.route('/generate', methods=['POST'])
+    current_directory = os.getcwd()
+    final_directory = os.path.join(current_directory, r'All Mails')
+    if not os.path.exists(final_directory):
+        os.makedirs(final_directory)
+
+    mail_list = []
+    for i in idList:
+        msgRead = f'{API}?action=readMessage&login={extract(mail)[0]}&domain={extract(mail)[1]}&id={i}'
+        req = requests.get(msgRead).json()
+        sender = req.get('from')
+        subject = req.get('subject')
+        date = req.get('date')
+        content = req.get('textBody')
+
+        mail_list.append({
+            'sender': sender,
+            'subject': subject,
+            'date': date,
+            'content': content
+        })
+
+    return {"status": f"You received {length} {x}.", "mails": mail_list}
+
+@app.route("/generate", methods=["GET"])
 def generate_email():
-    data = request.json
-    username = data.get('username')
-    domain = data.get('domain') or random.choice(domainList)
-
-    if not username:
-        username = generate_username()
-
+    # Generate email address
+    username = generateUserName()
+    domain = random.choice(domainList)
     temp_email = f"{username}@{domain}"
+    
+    # Request to create the temporary email
     requests.get(f"{API}?login={username}&domain={domain}")
+    
+    # Store email and set expiration time for 24 hours
     expires_at = datetime.utcnow() + timedelta(days=1)
-
     emails[username] = {'email': temp_email, 'expires_at': expires_at}
-    email_messages[temp_email] = []
 
-    return jsonify({'tempEmail': temp_email, 'expiresAt': expires_at.isoformat()}), 201
+    # Return the generated email to the frontend
+    return jsonify({"status": "Email generated successfully", "email": temp_email})
 
-@app.route('/inbox/<string:username>', methods=['GET'])
-def fetch_inbox(username):
-    if username not in emails or datetime.utcnow() > emails[username]['expires_at']:
-        return jsonify([])
+@app.route("/checkMails", methods=["GET"])
+def check_emails():
+    # Fetch the email from the request
+    mail = request.args.get('email')
+    if mail not in emails:
+        return jsonify({"status": "Invalid email address."}), 400
+    
+    # Get the mailbox content
+    mail_data = checkMails(mail)
+    return jsonify(mail_data)
 
-    temp_email = emails[username]['email']
-    messages = check_mails(*extract(f"{API}?login={username}&domain={emails[username]['email'].split('@')[1]}"))
-    email_messages[temp_email] = messages
+@app.route("/deleteEmail", methods=["POST"])
+def delete_email():
+    # Fetch the email from the request
+    mail = request.json.get('email')
+    if mail not in emails:
+        return jsonify({"status": "Invalid email address."}), 400
+    
+    # Delete the email
+    deleteMail(mail)
+    return jsonify({"status": "Email deleted successfully."})
 
-    return jsonify({'email': temp_email, 'messages': messages})
-
-@app.route('/delete/<string:username>', methods=['DELETE'])
-def delete_email(username):
-    if username in emails:
-        temp_email = emails[username]['email']
-        del emails[username]
-        del email_messages[temp_email]
-
-    return jsonify({'message': f'Email {username} deleted successfully.'})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(debug=True)
