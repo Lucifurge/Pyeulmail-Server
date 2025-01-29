@@ -61,7 +61,7 @@ def generate_email():
     emails[username] = {'email': temp_email, 'expires_at': expires_at}
     email_messages[temp_email] = []
 
-    return jsonify({'tempEmail': temp_email, 'expiresAt': expires_at}), 201
+    return jsonify({'tempEmail': temp_email, 'expiresAt': expires_at.isoformat()}), 201
 
 @app.route('/inbox/<string:username>', methods=['GET'])
 def fetch_inbox(username):
@@ -89,4 +89,9 @@ def cleanup_expired():
     expired_emails = [user for user, data in emails.items() if now > data['expires_at']]
 
     for user in expired_emails:
-        del emails[_{{{CITATION{{{_1{](https://github.com/ItZzMJ/AcapellaConverter/tree/81f38af696eabdd58dcfb0a03351be079d69e422/app%2FmailSwipe.py)
+        del emails[user]
+
+    return jsonify({'message': f'{len(expired_emails)} expired emails deleted successfully.'})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
