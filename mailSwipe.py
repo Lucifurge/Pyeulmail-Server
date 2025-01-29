@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 
 # Allow CORS for all origins (or specify your frontend domain)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"https://pyeulmails.onrender.com": "*"}})
 
 API = 'https://www.1secmail.com/api/v1/'
 domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
