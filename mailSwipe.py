@@ -4,8 +4,6 @@ import random
 import string
 import requests
 import pyperclip
-import time
-import os
 import re
 from datetime import datetime, timedelta
 
@@ -14,7 +12,6 @@ CORS(app)
 
 API = 'https://www.1secmail.com/api/v1/'
 domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
-domain = random.choice(domainList)
 
 emails = {}
 email_messages = {}
@@ -57,7 +54,7 @@ def generate_email():
 
     temp_email = f"{username}@{domain}"
     newMail = f"{API}?login={username}&domain={domain}"
-    reqMail = requests.get(newMail)
+    requests.get(newMail)
     pyperclip.copy(temp_email)
     expires_at = datetime.utcnow() + timedelta(days=1)
 
