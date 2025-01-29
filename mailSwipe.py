@@ -1,139 +1,95 @@
-import pyperclip
-import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import random
 import string
+import requests
+import pyperclip
 import time
-import sys
-import re
 import os
+import re
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+CORS(app)
 
 API = 'https://www.1secmail.com/api/v1/'
 domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
 domain = random.choice(domainList)
 
-def banner():
-    print(r'''
-                         ''~``
-                        ( o o )
-+------------------.oooO--(_)--Oooo.------------------+
-|                                                     |
-|                    Mail Swipe                       |
-|               [by Sameera Madushan]                 |
-|                                                     |
-|                    .oooO                            |
-|                    (   )   Oooo.                    |
-+---------------------\ (----(   )--------------------+
-                       \_)    ) /
-                             (_/
-    ''')
+emails = {}
+email_messages = {}
 
-def generateUserName():
+def generate_username():
     name = string.ascii_lowercase + string.digits
-    username = ''.join(random.choice(name) for i in range(10))
+    username = ''.join(random.choice(name) for _ in range(10))
     return username
 
-def extract():
-    getUserName = re.search(r'login=(.*)&',newMail).group(1)
+def extract(newMail):
+    getUserName = re.search(r'login=(.*)&', newMail).group(1)
     getDomain = re.search(r'domain=(.*)', newMail).group(1)
     return [getUserName, getDomain]
 
-# Got this from https://stackoverflow.com/a/43952192/13276219
-def print_statusline(msg: str):
-    last_msg_length = len(print_statusline.last_msg) if hasattr(print_statusline, 'last_msg') else 0
-    print(' ' * last_msg_length, end='\r')
-    print(msg, end='\r')
-    sys.stdout.flush()
-    print_statusline.last_msg = msg
-
-def deleteMail():
-    url = 'https://www.1secmail.com/mailbox'
-    data = {
-        'action': 'deleteMailbox',
-        'login': f'{extract()[0]}',
-        'domain': f'{extract()[1]}'
-    }
-
-    print_statusline("Disposing your email address - " + mail + '\n')
-    req = requests.post(url, data=data)
-
-def checkMails():
-    reqLink = f'{API}?action=getMessages&login={extract()[0]}&domain={extract()[1]}'
+def check_mails(user, domain):
+    reqLink = f'{API}?action=getMessages&login={user}&domain={domain}'
     req = requests.get(reqLink).json()
-    length = len(req)
-    if length == 0:
-        print_statusline("Your mailbox is empty. Hold tight. Mailbox is refreshed automatically every 5 seconds.")
-    else:
-        idList = []
+    messages = []
+
+    if len(req) != 0:
         for i in req:
-            for k,v in i.items():
-                if k == 'id':
-                    mailId = v
-                    idList.append(mailId)
+            msgRead = f'{API}?action=readMessage&login={user}&domain={domain}&id={i["id"]}'
+            msg = requests.get(msgRead).json()
+            messages.append({
+                'sender': msg.get('from'),
+                'subject': msg.get('subject'),
+                'date': msg.get('date'),
+                'content': msg.get('textBody')
+            })
+    return messages
 
-        x = 'mails' if length > 1 else 'mail'
-        print_statusline(f"You received {length} {x}. (Mailbox is refreshed automatically every 5 seconds.)")
+@app.route('/generate', methods=['POST'])
+def generate_email():
+    data = request.json
+    username = data.get('username')
+    domain = data.get('domain')
 
-        current_directory = os.getcwd()
-        final_directory = os.path.join(current_directory, r'All Mails')
-        if not os.path.exists(final_directory):
-            os.makedirs(final_directory)
+    if not username or not domain:
+        return jsonify({'error': 'Username and domain are required.'}), 400
 
-        for i in idList:
-            msgRead = f'{API}?action=readMessage&login={extract()[0]}&domain={extract()[1]}&id={i}'
-            req = requests.get(msgRead).json()
-            for k,v in req.items():
-                if k == 'from':
-                    sender = v
-                if k == 'subject':
-                    subject = v
-                if k == 'date':
-                    date = v
-                if k == 'textBody':
-                    content = v
+    temp_email = f"{username}@{domain}"
+    newMail = f"{API}?login={username}&domain={domain}"
+    reqMail = requests.get(newMail)
+    pyperclip.copy(temp_email)
+    expires_at = datetime.utcnow() + timedelta(days=1)
 
-            mail_file_path = os.path.join(final_directory, f'{i}.txt')
+    emails[username] = {'email': temp_email, 'expires_at': expires_at}
+    email_messages[temp_email] = []
 
-            with open(mail_file_path,'w') as file:
-                file.write("Sender: " + sender + '\n' + "To: " + mail + '\n' + "Subject: " + subject + '\n' + "Date: " + date + '\n' + "Content: " + content + '\n')
+    return jsonify({'tempEmail': temp_email, 'expiresAt': expires_at}), 201
 
-banner()
-userInput1 = input("Do you wish to use to a custom domain name (Y/N): ").capitalize()
+@app.route('/inbox/<string:username>', methods=['GET'])
+def fetch_inbox(username):
+    if username not in emails or datetime.utcnow() > emails[username]['expires_at']:
+        return jsonify([])
 
-try:
+    temp_email = emails[username]['email']
+    messages = check_mails(*extract(f"{API}?login={username}&domain={domain}"))
+    email_messages[temp_email] = messages
 
-    if userInput1 == 'Y':
-        userInput2 = input("\nEnter the name that you wish to use as your domain name: ")
-        newMail = f"{API}?login={userInput2}&domain={domain}"
-        reqMail = requests.get(newMail)
-        mail = f"{extract()[0]}@{extract()[1]}"
-        pyperclip.copy(mail)
-        print("\nYour temporary email is " + mail + " (Email address copied to clipboard.)" +"\n")
-        print(f"---------------------------- | Inbox of {mail}| ----------------------------\n")
-        while True:
-            checkMails()
-            time.sleep(5)
+    return jsonify({'email': temp_email, 'messages': messages})
 
-    if userInput1 == 'N':
-        newMail = f"{API}?login={generateUserName()}&domain={domain}"
-        reqMail = requests.get(newMail)
-        mail = f"{extract()[0]}@{extract()[1]}"
-        pyperclip.copy(mail)
-        print("\nYour temporary email is " + mail + " (Email address copied to clipboard.)" + "\n")
-        print(f"---------------------------- | Inbox of {mail} | ----------------------------\n")
-        while True:
-            checkMails()
-            time.sleep(5)
+@app.route('/delete/<string:username>', methods=['DELETE'])
+def delete_email(username):
+    if username in emails:
+        temp_email = emails[username]['email']
+        del emails[username]
+        del email_messages[temp_email]
 
-except(KeyboardInterrupt):
-    deleteMail()
-    print("\nProgramme Interrupted")
-    os.system('cls' if os.name == 'nt' else 'clear')
+    return jsonify({'message': f'Email {username} deleted successfully.'})
 
+@app.route('/cleanup', methods=['DELETE'])
+def cleanup_expired():
+    now = datetime.utcnow()
+    expired_emails = [user for user, data in emails.items() if now > data['expires_at']]
 
-
-
-
-
-
-
-
+    for user in expired_emails:
+        temp_email = emails[_{{{CITATION{{{_1{](https://github.com/ItZzMJ/AcapellaConverter/tree/81f38af696eabdd58dcfb0a03351be079d69e422/app%2FmailSwipe.py)
