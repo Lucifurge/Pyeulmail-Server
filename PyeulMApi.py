@@ -7,8 +7,8 @@ import html
 
 app = Flask(__name__)
 
-# Allow CORS for the specific frontend domain
-CORS(app, resources={r"/*": {"origins": "https://pyeulmails.onrender.com"}})
+# Allow CORS for the specific frontend domain (using '*' for debugging, replace with specific domains for production)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 BASE_URL = "http://api.guerrillamail.com/ajax.php"
 
@@ -41,16 +41,19 @@ def fetch_email(session, mail_id, sid_token):
 
 @app.route("/generate", methods=["POST"])
 def generate_email():
-    session = requests.Session()
-    email_address, sid_token = get_email_address(session)
+    try:
+        session = requests.Session()
+        email_address, sid_token = get_email_address(session)
 
-    if email_address:
-        # Store email and set expiration time for 24 hours
-        expires_at = datetime.utcnow() + timedelta(days=1)
-        emails[email_address] = {'email': email_address, 'sid_token': sid_token, 'expires_at': expires_at}
-        return jsonify({"status": "Email generated successfully", "email": email_address})
-    else:
-        return jsonify({"status": "Failed to generate email"}), 400
+        if email_address:
+            # Store email and set expiration time for 24 hours
+            expires_at = datetime.utcnow() + timedelta(days=1)
+            emails[email_address] = {'email': email_address, 'sid_token': sid_token, 'expires_at': expires_at}
+            return jsonify({"status": "Email generated successfully", "email": email_address})
+        else:
+            return jsonify({"status": "Failed to generate email"}), 400
+    except requests.RequestException as e:
+        return jsonify({"status": "Error generating email", "error": str(e)}), 500
 
 @app.route("/checkMails", methods=["GET"])
 def check_emails():
@@ -63,36 +66,42 @@ def check_emails():
     seq = 0
 
     # Check email every 15 seconds until new messages are found
-    messages, seq = check_email(session, sid_token, seq)
-    while not messages:
-        time.sleep(15)
+    try:
         messages, seq = check_email(session, sid_token, seq)
+        while not messages:
+            time.sleep(15)
+            messages, seq = check_email(session, sid_token, seq)
 
-    mail_list = []
-    for msg in messages:
-        mail_id = msg.get('mail_id')
-        mail_from = msg.get('mail_from', 'Unknown')
-        mail_subject = msg.get('mail_subject', 'No Subject')
+        mail_list = []
+        for msg in messages:
+            mail_id = msg.get('mail_id')
+            mail_from = msg.get('mail_from', 'Unknown')
+            mail_subject = msg.get('mail_subject', 'No Subject')
 
-        mail_content = fetch_email(session, mail_id, sid_token)
+            mail_content = fetch_email(session, mail_id, sid_token)
 
-        mail_list.append({
-            'sender': mail_from,
-            'subject': mail_subject,
-            'content': mail_content
-        })
+            mail_list.append({
+                'sender': mail_from,
+                'subject': mail_subject,
+                'content': mail_content
+            })
 
-    return jsonify({"status": "New messages found.", "mails": mail_list})
+        return jsonify({"status": "New messages found.", "mails": mail_list})
+    except requests.RequestException as e:
+        return jsonify({"status": "Error checking emails", "error": str(e)}), 500
 
 @app.route("/deleteEmail", methods=["POST"])
 def delete_email():
-    mail = request.json.get('email')
-    if mail not in emails:
-        return jsonify({"status": "Invalid email address."}), 400
+    try:
+        mail = request.json.get('email')
+        if mail not in emails:
+            return jsonify({"status": "Invalid email address."}), 400
 
-    # Optional: Implement email deletion logic if needed
-    emails.pop(mail, None)
-    return jsonify({"status": "Email deleted successfully."})
+        # Optional: Implement email deletion logic if needed
+        emails.pop(mail, None)
+        return jsonify({"status": "Email deleted successfully."})
+    except Exception as e:
+        return jsonify({"status": "Error deleting email", "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
