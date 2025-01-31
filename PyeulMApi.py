@@ -1,3 +1,4 @@
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -6,6 +7,9 @@ from datetime import datetime, timedelta
 import html
 
 app = Flask(__name__)
+
+# Set up logging for better debugging
+logging.basicConfig(level=logging.DEBUG)
 
 # Allow CORS for the specific frontend domain
 CORS(app, resources={r"/*": {"origins": "https://pyeulmails.onrender.com"}})
@@ -17,27 +21,39 @@ emails = {}
 
 # Helper function to get email address
 def get_email_address(session):
-    params = {'f': 'get_email_address'}
-    response = session.get(BASE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("email_addr", ""), data.get("sid_token", "")
+    try:
+        params = {'f': 'get_email_address'}
+        response = session.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()  # Will raise an HTTPError if the HTTP request failed
+        data = response.json()
+        return data.get("email_addr", ""), data.get("sid_token", "")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching email: {e}")
+        return "", ""  # Return empty if request failed
 
 # Helper function to check email for new messages
 def check_email(session, sid_token, seq):
-    params = {'f': 'check_email', 'sid_token': sid_token, 'seq': seq}
-    response = session.get(BASE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("list", []), data.get("seq", seq)
+    try:
+        params = {'f': 'check_email', 'sid_token': sid_token, 'seq': seq}
+        response = session.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("list", []), data.get("seq", seq)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error checking email: {e}")
+        return [], seq  # Return empty messages if failed
 
 # Helper function to fetch email content
 def fetch_email(session, mail_id, sid_token):
-    params = {'f': 'fetch_email', 'email_id': mail_id, 'sid_token': sid_token}
-    response = session.get(BASE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    return html.unescape(data.get('mail_body', 'No content'))
+    try:
+        params = {'f': 'fetch_email', 'email_id': mail_id, 'sid_token': sid_token}
+        response = session.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return html.unescape(data.get('mail_body', 'No content'))
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching email content: {e}")
+        return 'Failed to fetch email content.'
 
 @app.route("/generate", methods=["POST"])
 def generate_email():
@@ -45,7 +61,6 @@ def generate_email():
     email_address, sid_token = get_email_address(session)
 
     if email_address:
-        # Store email and set expiration time for 24 hours
         expires_at = datetime.utcnow() + timedelta(days=1)
         emails[email_address] = {'email': email_address, 'sid_token': sid_token, 'expires_at': expires_at}
         return jsonify({"status": "Email generated successfully", "email": email_address})
@@ -62,7 +77,6 @@ def check_emails():
     sid_token = emails[mail]['sid_token']
     seq = 0
 
-    # Check email every 15 seconds until new messages are found
     messages, seq = check_email(session, sid_token, seq)
     while not messages:
         time.sleep(15)
@@ -90,27 +104,8 @@ def delete_email():
     if mail not in emails:
         return jsonify({"status": "Invalid email address."}), 400
 
-    # Optional: Implement email deletion logic if needed
     emails.pop(mail, None)
     return jsonify({"status": "Email deleted successfully."})
-
-# Handle CORS preflight requests
-@app.before_request
-def before_request():
-    if request.method == "OPTIONS":
-        response = jsonify({"status": "CORS preflight response"})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        return response
-
-# Add Access-Control-Allow-Origin header after each request
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    return response
 
 if __name__ == "__main__":
     app.run(debug=True)
