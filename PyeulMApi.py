@@ -7,8 +7,8 @@ import html
 
 app = Flask(__name__)
 
-# Allow CORS for all origins (or specify your frontend domain)
-CORS(app, resources={r"/*": {"https://pyeulmails.onrender.com": "*"}})
+# Allow CORS for the specific frontend domain
+CORS(app, resources={r"/*": {"origins": "https://pyeulmails.onrender.com"}})
 
 BASE_URL = "http://api.guerrillamail.com/ajax.php"
 
