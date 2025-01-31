@@ -1,133 +1,97 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import random
-import string
 import requests
-import re
-import os
-import sys
 import time
 from datetime import datetime, timedelta
+import html
 
 app = Flask(__name__)
 
 # Allow CORS for all origins (or specify your frontend domain)
 CORS(app, resources={r"/*": {"https://pyeulmails.onrender.com": "*"}})
 
-API = 'https://www.1secmail.com/api/v1/'
-domainList = ['1secmail.com', '1secmail.net', '1secmail.org']
+BASE_URL = "http://api.guerrillamail.com/ajax.php"
 
+# Store emails and their expiration times
 emails = {}
-email_messages = {}
 
-def generateUserName():
-    name = string.ascii_lowercase + string.digits
-    username = ''.join(random.choice(name) for i in range(10))
-    return username
+# Helper function to get email address
+def get_email_address(session):
+    params = {'f': 'get_email_address'}
+    response = session.get(BASE_URL, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("email_addr", ""), data.get("sid_token", "")
 
-def extract(newMail):
-    getUserName = re.search(r'login=(.*)&', newMail).group(1)
-    getDomain = re.search(r'domain=(.*)', newMail).group(1)
-    return [getUserName, getDomain]
+# Helper function to check email for new messages
+def check_email(session, sid_token, seq):
+    params = {'f': 'check_email', 'sid_token': sid_token, 'seq': seq}
+    response = session.get(BASE_URL, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("list", []), data.get("seq", seq)
 
-def print_statusline(msg: str):
-    last_msg_length = len(print_statusline.last_msg) if hasattr(print_statusline, 'last_msg') else 0
-    print(' ' * last_msg_length, end='\r')
-    print(msg, end='\r')
-    sys.stdout.flush()
-    print_statusline.last_msg = msg
-
-def deleteMail(mail):
-    url = 'https://www.1secmail.com/mailbox'
-    data = {
-        'action': 'deleteMailbox',
-        'login': f'{extract(mail)[0]}',
-        'domain': f'{extract(mail)[1]}'
-    }
-    print_statusline(f"Disposing your email address - {mail}\n")
-    requests.post(url, data=data)
-
-def checkMails(mail):
-    reqLink = f'{API}?action=getMessages&login={extract(mail)[0]}&domain={extract(mail)[1]}'
-    req = requests.get(reqLink).json()
-    length = len(req)
-    
-    if length == 0:
-        return {"status": "Your mailbox is empty. Hold tight. Mailbox is refreshed automatically every 5 seconds."}
-    
-    idList = []
-    for i in req:
-        if 'id' in i:
-            idList.append(i['id'])
-
-    x = 'mails' if length > 1 else 'mail'
-    print_statusline(f"You received {length} {x}. (Mailbox is refreshed automatically every 5 seconds.)")
-
-    current_directory = os.getcwd()
-    final_directory = os.path.join(current_directory, r'All Mails')
-    if not os.path.exists(final_directory):
-        os.makedirs(final_directory)
-
-    mail_list = []
-    for i in idList:
-        msgRead = f'{API}?action=readMessage&login={extract(mail)[0]}&domain={extract(mail)[1]}&id={i}'
-        req = requests.get(msgRead).json()
-        sender = req.get('from')
-        subject = req.get('subject')
-        date = req.get('date')
-        content = req.get('textBody')
-
-        mail_list.append({
-            'sender': sender,
-            'subject': subject,
-            'date': date,
-            'content': content
-        })
-
-    return {"status": f"You received {length} {x}.", "mails": mail_list}
+# Helper function to fetch email content
+def fetch_email(session, mail_id, sid_token):
+    params = {'f': 'fetch_email', 'email_id': mail_id, 'sid_token': sid_token}
+    response = session.get(BASE_URL, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    return html.unescape(data.get('mail_body', 'No content'))
 
 @app.route("/generate", methods=["POST"])
 def generate_email():
-    # Generate email address
-    data = request.get_json()  # Get data from frontend (username and domain)
-    username = data.get("username", "")
-    domain = data.get("domain", "")
+    session = requests.Session()
+    email_address, sid_token = get_email_address(session)
 
-    if not username or not domain:
-        return jsonify({"status": "Username and domain are required"}), 400
-
-    temp_email = f"{username}@{domain}"
-    
-    # Request to create the temporary email
-    requests.get(f"{API}?login={username}&domain={domain}")
-    
-    # Store email and set expiration time for 24 hours
-    expires_at = datetime.utcnow() + timedelta(days=1)
-    emails[username] = {'email': temp_email, 'expires_at': expires_at}
-
-    # Return the generated email to the frontend
-    return jsonify({"status": "Email generated successfully", "email": temp_email})
+    if email_address:
+        # Store email and set expiration time for 24 hours
+        expires_at = datetime.utcnow() + timedelta(days=1)
+        emails[email_address] = {'email': email_address, 'sid_token': sid_token, 'expires_at': expires_at}
+        return jsonify({"status": "Email generated successfully", "email": email_address})
+    else:
+        return jsonify({"status": "Failed to generate email"}), 400
 
 @app.route("/checkMails", methods=["GET"])
 def check_emails():
-    # Fetch the email from the request
     mail = request.args.get('email')
     if mail not in emails:
         return jsonify({"status": "Invalid email address."}), 400
-    
-    # Get the mailbox content
-    mail_data = checkMails(mail)
-    return jsonify(mail_data)
+
+    session = requests.Session()
+    sid_token = emails[mail]['sid_token']
+    seq = 0
+
+    # Check email every 15 seconds until new messages are found
+    messages, seq = check_email(session, sid_token, seq)
+    while not messages:
+        time.sleep(15)
+        messages, seq = check_email(session, sid_token, seq)
+
+    mail_list = []
+    for msg in messages:
+        mail_id = msg.get('mail_id')
+        mail_from = msg.get('mail_from', 'Unknown')
+        mail_subject = msg.get('mail_subject', 'No Subject')
+
+        mail_content = fetch_email(session, mail_id, sid_token)
+
+        mail_list.append({
+            'sender': mail_from,
+            'subject': mail_subject,
+            'content': mail_content
+        })
+
+    return jsonify({"status": "New messages found.", "mails": mail_list})
 
 @app.route("/deleteEmail", methods=["POST"])
 def delete_email():
-    # Fetch the email from the request
     mail = request.json.get('email')
     if mail not in emails:
         return jsonify({"status": "Invalid email address."}), 400
-    
-    # Delete the email
-    deleteMail(mail)
+
+    # Optional: Implement email deletion logic if needed
+    emails.pop(mail, None)
     return jsonify({"status": "Email deleted successfully."})
 
 if __name__ == "__main__":
