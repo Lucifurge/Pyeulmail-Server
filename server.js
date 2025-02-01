@@ -20,11 +20,10 @@ app.post('/generate_email', async (req, res) => {
             }
         });
 
-        // Check if the response contains email data
         if (response.data && response.data.email_addr) {
             const email = response.data.email_addr;
-            
-            // Generate a random SID token
+
+            // Generate a random SID token (unique per user session)
             const sid_token = generateSidToken();
 
             // Save the generated email data under the SID token
@@ -49,6 +48,7 @@ app.post('/generate_email', async (req, res) => {
 app.get('/check_messages', async (req, res) => {
     const { sid_token, seq } = req.query;
 
+    // Check if the SID token exists in our stored data
     if (!emailData[sid_token]) {
         return res.status(400).json({ error: 'Invalid SID token' });
     }
@@ -64,7 +64,6 @@ app.get('/check_messages', async (req, res) => {
             }
         });
 
-        // Check if response contains messages
         if (response.data && response.data.messages) {
             const mailList = response.data.messages;
             const newSeq = response.data.seq;
