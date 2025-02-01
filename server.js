@@ -2,24 +2,13 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const readline = require('readline');
 const BASE_URL = "http://api.guerrillamail.com/ajax.php";
 const app = express();
 
 app.use(cors());
 app.use(bodyParser.json()); // Parse JSON payloads
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
 let emailData = {}; // Store user-specific email data keyed by SID token
-
-// Helper function to handle user input
-function askQuestion(query) {
-  return new Promise(resolve => rl.question(query, resolve));
-}
 
 // Function to generate a new email address
 async function getEmailAddress() {
@@ -62,43 +51,41 @@ async function fetchEmail(mailId, sidToken) {
   }
 }
 
-// API route to generate an email and listen for messages
+// API route to generate an email
 app.post('/generate_email', async (req, res) => {
   const { email, sidToken } = await getEmailAddress();
   
   if (email) {
     res.json({ email, sid_token: sidToken });
     console.log(`[+] Email generated: ${email}`);
-    
-    // Wait for messages after email generation
-    let seq = 0;
-    let continueChecking = true;
-
-    while (continueChecking) {
-      const { messages, seq: newSeq } = await checkEmail(sidToken, seq);
-      if (messages.length > 0) {
-        messages.forEach(async (msg) => {
-          const { mail_id, mail_from, mail_subject } = msg;
-          console.log(`[+] New message from ${mail_from}`);
-          console.log(`Subject: ${mail_subject}`);
-          
-          const mailContent = await fetchEmail(mail_id, sidToken);
-          console.log(mailContent);
-        });
-      } else {
-        console.log("[!] No new messages yet. Checking again...");
-      }
-      
-      // Ask user if they want to continue or exit after checking for a while
-      const userChoice = await askQuestion('\nWould you like to continue checking for messages? (y/n): ');
-      if (userChoice.trim().toLowerCase() === 'n') {
-        continueChecking = false;
-        console.log("Exiting...");
-      }
-      seq = newSeq;
-    }
+    emailData[sidToken] = { email, seq: 0 }; // Store sidToken with sequence for checking emails
   } else {
     res.status(500).json({ error: 'Error generating email address' });
+  }
+});
+
+// API route to check emails
+app.post('/check_messages', async (req, res) => {
+  const { sid_token } = req.body;
+  if (!sid_token || !emailData[sid_token]) {
+    return res.status(400).json({ error: 'Invalid or expired session token' });
+  }
+
+  const { seq } = emailData[sid_token];
+  
+  const { messages, seq: newSeq } = await checkEmail(sid_token, seq);
+  emailData[sid_token].seq = newSeq; // Update sequence
+  
+  if (messages.length > 0) {
+    const messageDetails = [];
+    for (const msg of messages) {
+      const { mail_id, mail_from, mail_subject } = msg;
+      const mailContent = await fetchEmail(mail_id, sid_token);
+      messageDetails.push({ mail_from, mail_subject, mailContent });
+    }
+    return res.json({ messages: messageDetails });
+  } else {
+    return res.json({ messages: [] });
   }
 });
 
