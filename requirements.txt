@@ -1,5 +1,0 @@
-Flask
-Flask-CORS
-requests
-pystyle
-colorama
