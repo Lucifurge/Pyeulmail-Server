@@ -41,9 +41,9 @@ app.post('/generate_email', async (req, res) => {
     }
 });
 
-// Check email messages route
-app.post('/check_messages', async (req, res) => {
-    const { sid_token, seq } = req.body;
+// Check email messages route (updated to accept query params)
+app.get('/check_messages', async (req, res) => {
+    const { sid_token, seq } = req.query;  // Extract sid_token and seq from query parameters
     try {
         const data = await checkMessages(sid_token, seq);
         res.status(200).json({ messages: data.list, seq: data.seq });
@@ -53,9 +53,9 @@ app.post('/check_messages', async (req, res) => {
     }
 });
 
-// Delete email route
-app.post('/delete_email', async (req, res) => {
-    const { mail_id, sid_token } = req.body;
+// Delete email route (updated to accept query params)
+app.get('/delete_email', async (req, res) => {
+    const { mail_id, sid_token } = req.query;  // Extract mail_id and sid_token from query parameters
     try {
         await deleteEmail(mail_id, sid_token);
         res.status(200).json({ message: 'Email deleted' });
