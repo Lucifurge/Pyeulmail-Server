@@ -1,114 +1,120 @@
 const express = require('express');
 const axios = require('axios');
-const cors = require('cors');
-
 const app = express();
-const PORT = process.env.PORT || 3000;
+const cors = require('cors');
+const bodyParser = require('body-parser');
 
-const BASE_URL = 'http://api.guerrillamail.com/ajax.php';
-
-// CORS setup to allow all origins for now (for development purposes)
 app.use(cors());
+app.use(bodyParser.json()); // Parse JSON payloads
 
-// Enable JSON body parsing
-app.use(express.json());
+// In-memory storage for user session data (for demonstration purposes)
+// In production, use a proper session or JWT-based system
+let emailData = {};  // store user-specific email data keyed by SID token
 
-// Utility function to extract email address from sender (if present with a display name)
-function extractEmail(sender) {
-    const match = sender && sender.match(/<([^>]+)>/); // Regex to extract the email part
-    return match ? match[1] : sender;  // Return just the email if available
-}
+// Route to generate a new email address
+app.post('/generate_email', (req, res) => {
+    // Generate a random email and a new SID token
+    const sid_token = generateSidToken();  // Generate a random SID token
+    const email = generateRandomEmail();   // Generate a random email address
 
-// Helper function to generate email address
-async function generateEmail() {
-    try {
-        const response = await axios.get(BASE_URL, { params: { f: 'get_email_address' } });
-        const data = response.data;
-        return { email: data.email_addr, sid_token: data.sid_token };
-    } catch (error) {
-        console.error('Error generating email:', error);
-        throw new Error('Unable to generate email');
-    }
-}
+    // Save the generated email data under the SID token
+    emailData[sid_token] = {
+        email: email,
+        messages: [],
+        seq: 0,  // Starting sequence for message polling
+    };
 
-// Helper function to check for messages
-async function checkMessages(sid_token, seq) {
-    try {
-        const response = await axios.get(BASE_URL, {
-            params: { f: 'check_email', sid_token: sid_token, seq: seq }
-        });
-
-        // Make sure the response has the expected structure
-        if (response.data && response.data.list) {
-            // Structure the messages to include sender, subject, and mail_body
-            const messages = response.data.list.map(msg => {
-                const sender = msg.sender ? extractEmail(msg.sender) : 'Unknown'; // Clean sender email
-                return {
-                    id: msg.mail_id,
-                    sender: sender,
-                    subject: msg.subject || 'No Subject',
-                    mail_body: msg.mail_body || 'No content available'
-                };
-            });
-            return { messages, seq: response.data.seq };
-        }
-        return { messages: [], seq };
-    } catch (error) {
-        console.error('Error fetching messages:', error);
-        throw new Error('Unable to fetch messages');
-    }
-}
-
-// Helper function to fetch an email's full content
-async function fetchEmail(mail_id, sid_token) {
-    try {
-        const response = await axios.get(BASE_URL, {
-            params: { f: 'fetch_email', email_id: mail_id, sid_token: sid_token }
-        });
-        // Send full email body content back
-        return response.data.mail_body || 'No content';
-    } catch (error) {
-        console.error('Error fetching email:', error);
-        return 'Error fetching email content';
-    }
-}
-
-// Endpoint to generate a new email
-app.post('/generate_email', async (req, res) => {
-    try {
-        const { email, sid_token } = await generateEmail();
-        res.status(200).json({ email, sid_token });
-    } catch (error) {
-        res.status(500).json({ error: 'Unable to generate email' });
-    }
+    // Respond with the generated email and SID token
+    res.json({ email, sid_token });
 });
 
-// Endpoint to check for new emails
-app.get('/check_messages', async (req, res) => {
+// Route to check for new messages
+app.get('/check_messages', (req, res) => {
     const { sid_token, seq } = req.query;
-    try {
-        const data = await checkMessages(sid_token, seq);
-        if (!data.messages || data.messages.length === 0) {
-            return res.status(404).json({ error: 'No messages found' });
-        }
-        res.status(200).json({ messages: data.messages, seq: data.seq });
-    } catch (error) {
-        res.status(500).json({ error: 'Unable to fetch messages' });
+
+    // Ensure SID token exists
+    if (!emailData[sid_token]) {
+        return res.status(400).json({ error: 'Invalid SID token' });
     }
+
+    // Get the current email data
+    const email = emailData[sid_token];
+    const currentSeq = parseInt(seq) || 0;
+
+    // Simulate fetching new messages (e.g., from an email provider or database)
+    const newMessages = fetchNewMessages(email.seq, currentSeq);
+
+    // Return the new messages and updated sequence
+    emailData[sid_token].seq = newMessages.seq;
+    res.json({
+        messages: newMessages.messages,
+        seq: emailData[sid_token].seq
+    });
 });
 
-// Endpoint to fetch a specific email's content
-app.get('/fetch_email', async (req, res) => {
+// Route to fetch full email content
+app.get('/fetch_email', (req, res) => {
     const { mail_id, sid_token } = req.query;
-    try {
-        const mailContent = await fetchEmail(mail_id, sid_token);
-        res.status(200).json({ content: mailContent });
-    } catch (error) {
-        res.status(500).json({ error: 'Unable to fetch email content' });
+
+    // Ensure SID token exists
+    if (!emailData[sid_token]) {
+        return res.status(400).json({ error: 'Invalid SID token' });
     }
+
+    // Get the current email data
+    const email = emailData[sid_token];
+
+    // Find the specific email by ID
+    const message = email.messages.find(msg => msg.id === mail_id);
+
+    if (!message) {
+        return res.status(404).json({ error: 'Email not found' });
+    }
+
+    // Return the email content
+    res.json({
+        content: message.mail_body
+    });
 });
 
-// Start the server
+// Helper function to simulate fetching new messages
+function fetchNewMessages(lastSeq, currentSeq) {
+    // Simulate new messages
+    const newMessages = [
+        {
+            id: `${currentSeq + 1}`,
+            sender: `user${currentSeq + 1}@example.com`,
+            subject: `Test Subject ${currentSeq + 1}`,
+            mail_body: `This is the body of email number ${currentSeq + 1}`
+        },
+        {
+            id: `${currentSeq + 2}`,
+            sender: `user${currentSeq + 2}@example.com`,
+            subject: `Test Subject ${currentSeq + 2}`,
+            mail_body: `This is the body of email number ${currentSeq + 2}`
+        }
+    ];
+
+    // Return new messages with updated sequence
+    return {
+        messages: newMessages,
+        seq: currentSeq + newMessages.length
+    };
+}
+
+// Helper function to generate a random SID token
+function generateSidToken() {
+    return Math.random().toString(36).substring(2);  // Random string for SID
+}
+
+// Helper function to generate a random email address
+function generateRandomEmail() {
+    const randomString = Math.random().toString(36).substring(2, 10);  // Random string for email
+    return `${randomString}@tempmail.com`;
+}
+
+// Start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
