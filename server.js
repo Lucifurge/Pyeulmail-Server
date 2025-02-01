@@ -31,7 +31,19 @@ async function checkMessages(sid_token, seq) {
         const response = await axios.get(BASE_URL, {
             params: { f: 'check_email', sid_token: sid_token, seq: seq }
         });
-        return response.data;
+
+        // Make sure the response has the expected structure
+        if (response.data && response.data.list) {
+            // Structure the messages to include sender, subject, and mail_body
+            const messages = response.data.list.map(msg => ({
+                id: msg.mail_id,
+                sender: msg.sender || 'Unknown',
+                subject: msg.subject || 'No Subject',
+                mail_body: msg.mail_body || 'No content available'
+            }));
+            return { messages, seq: response.data.seq };
+        }
+        return { messages: [], seq };
     } catch (error) {
         console.error('Error fetching messages:', error);
         throw new Error('Unable to fetch messages');
@@ -44,6 +56,7 @@ async function fetchEmail(mail_id, sid_token) {
         const response = await axios.get(BASE_URL, {
             params: { f: 'fetch_email', email_id: mail_id, sid_token: sid_token }
         });
+        // Send full email body content back
         return response.data.mail_body || 'No content';
     } catch (error) {
         console.error('Error fetching email:', error);
@@ -66,10 +79,10 @@ app.get('/check_messages', async (req, res) => {
     const { sid_token, seq } = req.query;
     try {
         const data = await checkMessages(sid_token, seq);
-        if (!data || !data.list) {
+        if (!data.messages || data.messages.length === 0) {
             return res.status(404).json({ error: 'No messages found' });
         }
-        res.status(200).json({ messages: data.list, seq: data.seq });
+        res.status(200).json({ messages: data.messages, seq: data.seq });
     } catch (error) {
         res.status(500).json({ error: 'Unable to fetch messages' });
     }
