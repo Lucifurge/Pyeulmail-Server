@@ -16,10 +16,10 @@ async function generateEmail() {
 
 // Helper function to check for messages
 async function checkMessages(sidToken, seq) {
-    const response = await axios.get(BASE_URL, { 
+    const response = await axios.get(BASE_URL, {
         params: { f: 'check_email', sid_token: sidToken, seq: seq }
     });
-    return response.data;
+    return response.data; // Ensure the response has the correct structure
 }
 
 // Helper function to delete email
@@ -46,6 +46,9 @@ app.get('/check_messages', async (req, res) => {
     const { sid_token, seq } = req.query;  // Extract sid_token and seq from query parameters
     try {
         const data = await checkMessages(sid_token, seq);
+        if (!data || !data.list) {
+            return res.status(404).json({ error: 'No messages found or invalid response structure' });
+        }
         res.status(200).json({ messages: data.list, seq: data.seq });
     } catch (error) {
         console.error('Error fetching messages:', error);
@@ -57,7 +60,10 @@ app.get('/check_messages', async (req, res) => {
 app.get('/delete_email', async (req, res) => {
     const { mail_id, sid_token } = req.query;  // Extract mail_id and sid_token from query parameters
     try {
-        await deleteEmail(mail_id, sid_token);
+        const response = await deleteEmail(mail_id, sid_token);
+        if (response.error) {
+            return res.status(404).json({ error: 'Unable to delete email' });
+        }
         res.status(200).json({ message: 'Email deleted' });
     } catch (error) {
         console.error('Error deleting email:', error);
