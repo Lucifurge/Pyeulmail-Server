@@ -31,7 +31,7 @@ async function checkEmail(sidToken, seq) {
   try {
     const response = await axios.get(BASE_URL, { params });
     const data = response.data;
-    return { messages: data.messages || [], seq: data.seq || seq };
+    return { messages: data.list || [], seq: data.seq || seq };
   } catch (error) {
     console.error("Error fetching messages:", error);
     return { messages: [], seq };
@@ -77,12 +77,11 @@ app.post('/check_messages', async (req, res) => {
   emailData[sid_token].seq = newSeq; // Update sequence
   
   if (messages.length > 0) {
-    const messageDetails = [];
-    for (const msg of messages) {
+    const messageDetails = await Promise.all(messages.map(async msg => {
       const { mail_id, mail_from, mail_subject } = msg;
       const mailContent = await fetchEmail(mail_id, sid_token);
-      messageDetails.push({ mail_from, mail_subject, mailContent });
-    }
+      return { mail_from, mail_subject, mailContent };
+    }));
     return res.json({ messages: messageDetails });
   } else {
     return res.json({ messages: [] });
