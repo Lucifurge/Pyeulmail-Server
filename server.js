@@ -3,15 +3,12 @@ const axios = require('axios');
 const app = express();
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const BASE_URL = "http://api.guerrillamail.com/ajax.php";
 
 app.use(cors());
 app.use(bodyParser.json()); // Parse JSON payloads
 
-const BASE_URL = "http://api.guerrillamail.com/ajax.php";
-
-// In-memory storage for user session data (for demonstration purposes)
-// In production, use a proper session or JWT-based system
-let emailData = {};  // store user-specific email data keyed by SID token
+let emailData = {}; // Store user-specific email data keyed by SID token
 
 // Route to generate a new email address
 app.post('/generate_email', async (req, res) => {
@@ -31,8 +28,8 @@ app.post('/generate_email', async (req, res) => {
         // Save the generated email data under the SID token
         emailData[sid_token] = {
             email: email,
-            messages: [],  // This will be populated by fetching the messages from Guerrilla Mail
-            seq: 0,  // Starting sequence for message polling
+            messages: [],
+            seq: 0,
         };
 
         // Respond with the generated email and SID token
@@ -47,14 +44,12 @@ app.post('/generate_email', async (req, res) => {
 app.get('/check_messages', async (req, res) => {
     const { sid_token, seq } = req.query;
 
-    // Ensure SID token exists
     if (!emailData[sid_token]) {
         return res.status(400).json({ error: 'Invalid SID token' });
     }
 
     const currentSeq = parseInt(seq) || 0;
 
-    // Fetch new messages from Guerrilla Mail API
     try {
         const response = await axios.get(BASE_URL, {
             params: {
@@ -86,19 +81,16 @@ app.get('/check_messages', async (req, res) => {
 app.get('/fetch_email', async (req, res) => {
     const { mail_id, sid_token } = req.query;
 
-    // Ensure SID token exists
     if (!emailData[sid_token]) {
         return res.status(400).json({ error: 'Invalid SID token' });
     }
 
-    // Find the specific email by ID
     const message = emailData[sid_token].messages.find(msg => msg.id === mail_id);
 
     if (!message) {
         return res.status(404).json({ error: 'Email not found' });
     }
 
-    // Return the email content
     res.json({
         content: message.mail_body
     });
