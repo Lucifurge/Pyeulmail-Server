@@ -13,6 +13,12 @@ app.use(cors());
 // Enable JSON body parsing
 app.use(express.json());
 
+// Utility function to extract email address from sender (if present with a display name)
+function extractEmail(sender) {
+    const match = sender && sender.match(/<([^>]+)>/); // Regex to extract the email part
+    return match ? match[1] : sender;  // Return just the email if available
+}
+
 // Helper function to generate email address
 async function generateEmail() {
     try {
@@ -35,12 +41,15 @@ async function checkMessages(sid_token, seq) {
         // Make sure the response has the expected structure
         if (response.data && response.data.list) {
             // Structure the messages to include sender, subject, and mail_body
-            const messages = response.data.list.map(msg => ({
-                id: msg.mail_id,
-                sender: msg.sender || 'Unknown',
-                subject: msg.subject || 'No Subject',
-                mail_body: msg.mail_body || 'No content available'
-            }));
+            const messages = response.data.list.map(msg => {
+                const sender = msg.sender ? extractEmail(msg.sender) : 'Unknown'; // Clean sender email
+                return {
+                    id: msg.mail_id,
+                    sender: sender,
+                    subject: msg.subject || 'No Subject',
+                    mail_body: msg.mail_body || 'No content available'
+                };
+            });
             return { messages, seq: response.data.seq };
         }
         return { messages: [], seq };
