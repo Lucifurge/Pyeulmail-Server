@@ -13,9 +13,6 @@ let emailData = {}; // Store user-specific email data keyed by SID token
 // Route to generate a new email address
 app.post('/generate_email', async (req, res) => {
     try {
-        // Generate a random SID token
-        const sid_token = generateSidToken();
-
         // Fetch the email address from Guerrilla Mail API
         const response = await axios.get(BASE_URL, {
             params: {
@@ -23,17 +20,25 @@ app.post('/generate_email', async (req, res) => {
             }
         });
 
-        const email = response.data.email_addr;
+        // Check if the response contains email data
+        if (response.data && response.data.email_addr) {
+            const email = response.data.email_addr;
+            
+            // Generate a random SID token
+            const sid_token = generateSidToken();
 
-        // Save the generated email data under the SID token
-        emailData[sid_token] = {
-            email: email,
-            messages: [],
-            seq: 0,
-        };
+            // Save the generated email data under the SID token
+            emailData[sid_token] = {
+                email: email,
+                messages: [],
+                seq: 0,
+            };
 
-        // Respond with the generated email and SID token
-        res.json({ email, sid_token });
+            // Respond with the generated email and SID token
+            res.json({ email, sid_token });
+        } else {
+            throw new Error('Failed to generate email address');
+        }
     } catch (error) {
         console.error('Error generating email:', error);
         res.status(500).json({ error: 'Error generating email address' });
@@ -59,18 +64,23 @@ app.get('/check_messages', async (req, res) => {
             }
         });
 
-        const mailList = response.data.messages || [];
-        const newSeq = response.data.seq;
+        // Check if response contains messages
+        if (response.data && response.data.messages) {
+            const mailList = response.data.messages;
+            const newSeq = response.data.seq;
 
-        // Save new messages to the session
-        emailData[sid_token].messages = mailList;
-        emailData[sid_token].seq = newSeq;
+            // Save new messages to the session
+            emailData[sid_token].messages = mailList;
+            emailData[sid_token].seq = newSeq;
 
-        // Return the new messages and updated sequence
-        res.json({
-            messages: mailList,
-            seq: newSeq
-        });
+            // Return the new messages and updated sequence
+            res.json({
+                messages: mailList,
+                seq: newSeq
+            });
+        } else {
+            throw new Error('No messages found');
+        }
     } catch (error) {
         console.error('Error fetching messages:', error);
         res.status(500).json({ error: 'Error fetching messages' });
